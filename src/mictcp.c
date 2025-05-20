@@ -6,6 +6,8 @@
  * Retourne le descripteur du socket ou bien -1 en cas d'erreur
  */
 mic_tcp_sock socket1;
+unsigned int numseq = 0;
+unsigned int numack = 0;    
 
 
 int mic_tcp_socket(start_mode sm)
@@ -104,12 +106,26 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
     
     mic_tcp_pdu pdu;
+    mic_tcp_pdu ack;
 	pdu.payload.data = mesg;
 	pdu.payload.size = mesg_size;
     pdu.header.source_port = socket1.local_addr.port;
     pdu.header.dest_port = socket1.remote_addr.port;
+    pdu.header.seq_num = numseq;
+    pdu.header.ack_num = 0;
+    pdu.header.syn = 0;
+    pdu.header.fin= 0;
+
+
     //Envoyer un message (dont la taille le contenu sont passés en paramètres).
     int sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
+    int recv_size = IP_recv(&ack, NULL, NULL,100);
+    while (recv_size <= 0 || ack.header.ack != 1 || ack.header.ack_num != numseq){
+        sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
+        recv_size = IP_recv(&ack, NULL, NULL, 100);
+    }
+    numseq++;
+
 
     return sent_size;
 
@@ -176,9 +192,19 @@ int mic_tcp_close (int socket)
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_ip_addr remote_addr)
 {
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
+    mic_tcp_pdu ack;
+    ack.header.source_port = socket1.local_addr.port;
+    ack.header.dest_port = socket1.remote_addr.port;
+    ack.header.seq_num = 0;
+    ack.header.ack_num = pdu.header.seq_num; 
+    ack.header.ack = 1;
+
+    
 
    
-
-    app_buffer_put(pdu.payload);
-
+    if (pdu.header.seq_num== numack ){
+        app_buffer_put(pdu.payload);
+        numack++;
+    }
+    IP_send(ack, remote_addr);
 }
