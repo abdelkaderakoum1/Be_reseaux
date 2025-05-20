@@ -107,23 +107,38 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
     
     mic_tcp_pdu pdu;
     mic_tcp_pdu ack;
+    ack.payload.data = malloc(8);
+    ack.payload.size = 8;
+    
 	pdu.payload.data = mesg;
 	pdu.payload.size = mesg_size;
     pdu.header.source_port = socket1.local_addr.port;
     pdu.header.dest_port = socket1.remote_addr.port;
     pdu.header.seq_num = numseq;
     pdu.header.ack_num = 0;
-    pdu.header.syn = 0;
-    pdu.header.fin= 0;
-
+    //pdu.header.syn = 0;
+    //pdu.header.fin= 0;
+    mic_tcp_ip_addr local_addr;
+    mic_tcp_ip_addr remote_addr;
 
     //Envoyer un message (dont la taille le contenu sont passés en paramètres).
     int sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
-    int recv_size = IP_recv(&ack, NULL, NULL,100);
+    int recv_size = IP_recv(&ack, &local_addr, &remote_addr,100);
+
+
     while (recv_size <= 0 || ack.header.ack != 1 || ack.header.ack_num != numseq){
+        printf("%d\n",recv_size);
+
+        printf("%d\n",ack.header.ack);
+        printf("%d\n",ack.header.ack_num);
+        printf("%d\n",numseq);
         sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
-        recv_size = IP_recv(&ack, NULL, NULL, 100);
+        perror("send");
+        recv_size = IP_recv(&ack, &local_addr, &remote_addr, 100);
+        perror("recv"); 
+
     }
+    printf("test2\n");
     numseq++;
 
 
@@ -201,10 +216,10 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
 
     
 
-   
-    if (pdu.header.seq_num== numack ){
+    IP_send(ack, socket1.remote_addr.ip_addr);
+    if (pdu.header.seq_num == numack ){
         app_buffer_put(pdu.payload);
         numack++;
     }
-    IP_send(ack, remote_addr);
+    
 }
