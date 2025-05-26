@@ -15,7 +15,7 @@ int mic_tcp_socket(start_mode sm)
    int result = -1;
    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
    result = initialize_components(sm); /* Appel obligatoire */
-   set_loss_rate(0);
+   set_loss_rate(50); /* Pour simuler une perte de 50% des paquets */
    socket1.fd=1;
    socket1.state=IDLE;
    result= socket1.fd;
@@ -123,21 +123,29 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
 
     //Envoyer un message (dont la taille le contenu sont passés en paramètres).
     int sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
-    int recv_size = IP_recv(&ack, &local_addr, &remote_addr,100000);
+    int recv_size = IP_recv(&ack, &local_addr, &remote_addr,100);
 
 
     while (recv_size < 0 || ack.header.ack != 1 || ack.header.ack_num != numseq){
-        printf("%d\n",recv_size);
+        printf("recv_size:%d\n",recv_size);
 
-        printf("%d\n",ack.header.ack);
-        printf("%d\n",ack.header.ack_num);
-        printf("%d\n",numseq);
+        printf("ack:%d\n",ack.header.ack);
+        printf("ack_num%d\n",ack.header.ack_num);
+        printf("numseq:%d\n",numseq);
         sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
-        perror("send");
-        recv_size = IP_recv(&ack, &local_addr, &remote_addr, 100000);
-        perror("recv"); 
+        perror("send\n");
+        recv_size = IP_recv(&ack, &local_addr, &remote_addr, 100);
+        perror("recv\n"); 
 
     }
+    printf("on a sortie du BOUCLE\n");
+    printf("recv_size:%d\n",recv_size);
+
+    printf("ack:%d\n",ack.header.ack);
+    printf("ack_num%d\n",ack.header.ack_num);
+    printf("numseq:%d\n",numseq);
+
+
     printf("test2\n");
     numseq++;
 
