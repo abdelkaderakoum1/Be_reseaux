@@ -1,13 +1,66 @@
 #include <mictcp.h>
 #include <api/mictcp_core.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
  * Retourne le descripteur du socket ou bien -1 en cas d'erreur
  */
+
+
+#define taille_fenetre 10
+#define max_loss 1
 mic_tcp_sock socket1;
 unsigned int numseq = 0;
-unsigned int numack = 0;    
+unsigned int numack = 0;   
+
+float taux_perte = 0.0;
+float seuil=10; //pourcentage de perte acceptable
+static int idx = 0;
+bool ack_received = false;
+static int fenetre[taille_fenetre];
+
+//ici on initialise la fenetre de perte pour etre dand le cas pessimiste 
+void init_fenetre() {
+    for (int i = 0; i < taille_fenetre; i++) {
+        fenetre[i] = 0;
+    }
+    idx = 0;
+}
+
+void updateFenetre(bool delivre){
+    if (delivre) {
+        fenetre[idx] = 1; 
+    } else {
+        fenetre[idx] = 0; 
+    }
+    idx = (idx + 1) ;
+
+
+}
+
+bool fenetretauxaccepted() {
+    int somme = 0;
+    for (int i = 0; i < taille_fenetre; i++) {
+        somme += fenetre[i];
+    }
+    float taux = (float)somme / taille_fenetre;
+    printf("Taux de livraison dans la fenetre: %f\n", taux);
+    if (taux < seuil) {
+        return true; 
+    } else {
+        return false; 
+    }
+}
+    
+
+
+
+
+
+
 
 
 int mic_tcp_socket(start_mode sm)
@@ -124,8 +177,16 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
     //Envoyer un message (dont la taille le contenu sont passés en paramètres).
     int sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
     int recv_size = IP_recv(&ack, &local_addr, &remote_addr,100);
+    if (recv_size >= 0 ||ack.header.ack == 1 || ack.header.ack_num == numseq) {
+        ack_received= true;
+        
+       
+    }
+    updateFenetre(ack_received);
 
-
+    ack_received= false;
+    
+        
     while (recv_size < 0 || ack.header.ack != 1 || ack.header.ack_num != numseq){
         printf("recv_size:%d\n",recv_size);
 
@@ -135,9 +196,18 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
         sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
         perror("send\n");
         recv_size = IP_recv(&ack, &local_addr, &remote_addr, 100);
+
+        if (recv_size >= 0 ||ack.header.ack == 1 || ack.header.ack_num == numseq) {
+        ack_received= true;
+        
+    }
+}
+    
+    updateFenetre(ack_received); ack_received= false;
         perror("recv\n"); 
 
-    }
+    
+    printf("on a recu un ack\n");
     printf("on a sortie du BOUCLE\n");
     printf("recv_size:%d\n",recv_size);
 
@@ -225,6 +295,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
     
 
     IP_send(ack,remote_addr);
+    
     if (pdu.header.seq_num == numack ){
         app_buffer_put(pdu.payload);
         numack++;
