@@ -17,7 +17,7 @@ unsigned int numseq = 0;
 unsigned int numack = 0;   
 
 float taux_perte = 0.0;
-float seuil=10; //pourcentage de perte acceptable
+int seuil=20; //pourcentage de perte acceptable
 static int idx = 0;
 bool ack_received = false;
 static int fenetre[taille_fenetre];
@@ -32,23 +32,25 @@ void init_fenetre() {
 
 void updateFenetre(bool delivre){
     if (delivre) {
-        fenetre[idx] = 1; 
-    } else {
         fenetre[idx] = 0; 
+    } else {
+        fenetre[idx] = 1; 
     }
-    idx = (idx + 1) ;
-
-
+    idx = (idx + 1) % taille_fenetre; 
 }
 
-bool fenetretauxaccepted() {
+bool fenetretaux_fautRentre() {
     int somme = 0;
     for (int i = 0; i < taille_fenetre; i++) {
         somme += fenetre[i];
     }
-    float taux = (float)somme / taille_fenetre;
-    printf("Taux de livraison dans la fenetre: %f\n", taux);
-    if (taux < seuil) {
+    int taux = (float)somme / taille_fenetre *100;
+    printf("Taux de livraison dans la fenetre: %d\n", taux);
+    for (int i = 0; i < taille_fenetre; i++) {
+        printf("fenetre[%d]: %d\n", i, fenetre[i]);
+    }
+    
+    if (taux > seuil) {// s
         return true; 
     } else {
         return false; 
@@ -72,6 +74,7 @@ int mic_tcp_socket(start_mode sm)
    socket1.fd=1;
    socket1.state=IDLE;
    result= socket1.fd;
+   init_fenetre();
 
 
    return result ;
@@ -175,7 +178,9 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
     mic_tcp_ip_addr remote_addr;
 
     //Envoyer un message (dont la taille le contenu sont passés en paramètres).
+    printf("test1\n");
     int sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
+    printf("on a envoye un pdu\n");
     int recv_size = IP_recv(&ack, &local_addr, &remote_addr,100);
     if (recv_size >= 0 ||ack.header.ack == 1 || ack.header.ack_num == numseq) {
         ack_received= true;
@@ -185,29 +190,42 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
     updateFenetre(ack_received);
 
     ack_received= false;
-    
-        
+    printf("did we enter?\n");
+    if (fenetretaux_fautRentre()) {
+        printf("on est dans le if\n");
     while (recv_size < 0 || ack.header.ack != 1 || ack.header.ack_num != numseq){
+        printf("on est dans la boucle\n");
         printf("recv_size:%d\n",recv_size);
 
         printf("ack:%d\n",ack.header.ack);
         printf("ack_num%d\n",ack.header.ack_num);
         printf("numseq:%d\n",numseq);
+       
         sent_size =IP_send(pdu,socket1.remote_addr.ip_addr);
+        
         perror("send\n");
         recv_size = IP_recv(&ack, &local_addr, &remote_addr, 100);
 
         if (recv_size >= 0 ||ack.header.ack == 1 || ack.header.ack_num == numseq) {
-        ack_received= true;
+            printf("on a finally recu un ack\n");
+            
+        
+            idx=(taille_fenetre + idx -1)%taille_fenetre;
+            fenetre[idx] = 0;
+            fenetretaux_fautRentre();
+    }
+        
+
+        
+    
+
         
     }
 }
     
-    updateFenetre(ack_received); ack_received= false;
-        perror("recv\n"); 
-
     
-    printf("on a recu un ack\n");
+        perror("recv\n"); 
+    
     printf("on a sortie du BOUCLE\n");
     printf("recv_size:%d\n",recv_size);
 
@@ -216,7 +234,7 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
     printf("numseq:%d\n",numseq);
 
 
-    printf("test2\n");
+    
     numseq++;
 
 
@@ -296,7 +314,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
 
     IP_send(ack,remote_addr);
     
-    if (pdu.header.seq_num == numack ){
+    if (pdu.header.seq_num >= numack ){
         app_buffer_put(pdu.payload);
         numack++;
     }
