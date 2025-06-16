@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-
+#define DUP_ACK_COUNT 2
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
  * Retourne le descripteur du socket ou bien -1 en cas d'erreur
@@ -24,6 +24,7 @@ bool ack_received = false;
 static int fenetre[taille_fenetre];
 
 // Pour négociation dynamique du seuil
+int rate_accepted=20;
 int seuil_ = 10;      // valeur par défaut souhaitée côté application
 int seuil_negocie_ = 20;    // résultat de la négociation, utilisé pour la fiabilité partielle
 
@@ -63,8 +64,8 @@ bool fenetretaux_fautRentre() {
     for (int i = 0; i < taille_fenetre; i++) {
         printf("fenetre[%d]: %d\n", i, fenetre[i]);
     }
-    
-    if (taux > seuil_) {// s
+    printf("le taux accepte: %d\n",rate_accepted);
+    if (taux > rate_accepted) {// s
         return true; 
     } else {
         return false; 
@@ -84,7 +85,7 @@ int mic_tcp_socket(start_mode sm)
    int result = -1;
    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
    result = initialize_components(sm); /* Appel obligatoire */
-   set_loss_rate(10); /* Pour simuler une perte de 50% des paquets */
+   set_loss_rate(70); /* Pour simuler une perte de 50% des paquets */
    socket1.fd=1;
 
    socket1.local_addr.ip_addr.addr = "localhost";
@@ -171,6 +172,9 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
 
     // Préparer le PDU SYN avec le taux de pertes souhaité (
      mic_tcp_pdu syn_pdu = {0}, synack_pdu = {0}, ack_pdu = {0};
+
+    synack_pdu.payload.size = sizeof(int);
+    synack_pdu.payload.data = malloc(synack_pdu.payload.size);
     syn_pdu.header.source_port = socket1.local_addr.port;
     syn_pdu.header.dest_port = addr.port;
     syn_pdu.header.syn = 1;
@@ -198,6 +202,16 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
 
         if (status != -1 && synack_pdu.header.syn == 1 && synack_pdu.header.ack == 1) {
             printf("[MIC-TCP] SYN/ACK reçu.\n");
+            
+            if (synack_pdu.payload.size >= sizeof(int)) {
+                int negotiated = 0;
+                memcpy(&negotiated,
+                       synack_pdu.payload.data,
+                       sizeof(int));
+                rate_accepted = negotiated;
+                
+            }
+
             // SYN/ACK reçu
             break;
         }
@@ -231,7 +245,9 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
     ack_pdu.header.fin = 0;
     ack_pdu.payload.size = 0;
     ack_pdu.payload.data = NULL;
-    IP_send(ack_pdu, addr.ip_addr);
+    for (int i = 0; i < DUP_ACK_COUNT; i++) {
+        IP_send(ack_pdu, addr.ip_addr);
+}
 
     socket1.state = ESTABLISHED;
     return 0;
@@ -283,7 +299,7 @@ int mic_tcp_send (int mic_sock, char* mesg, int mesg_size)
     updateFenetre(ack_received);
 
     ack_received= false;
-    printf("did we enter?\n");
+    
     if (fenetretaux_fautRentre()) {
         printf("on est dans le if\n");
     while (recv_size < 0 || ack.header.ack != 1 || ack.header.ack_num != numseq){
@@ -481,7 +497,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
                 final_rate = seuil_client;
             }
 
-            seuil_=final_rate;
+            rate_accepted=final_rate;
 
 
             
@@ -542,7 +558,9 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
         ack.header.ack_num = pdu.header.seq_num;
         ack.payload.size = sizeof(int);
         ack.payload.data = malloc(sizeof(int));
+        
         IP_send(ack, remote_addr);
+        
         if (pdu.header.seq_num >= numack) {
             app_buffer_put(pdu.payload);
             numack++;

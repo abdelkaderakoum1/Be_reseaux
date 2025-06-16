@@ -46,7 +46,8 @@ Le serveur reçoit cette valeur, la compare avec la sienne,
 et choisit le taux le plus strict pour être sûr que les deux côtés soient satisfaits.
 
 Ce taux négocié est ensuite renvoyé au client dans le message SYN-ACK.
-Cela permet d'adapter facilement la transmission en fonction des conditions du réseau.
+Cela permet d'adapter facilement la transmission en fonction des conditions du réseau et ce rate_accepted est donner apres dans la fonction fenetretaux_fautRentre() alors que ca chnage 
+de valeur toujours.
 
 GESTION DES ÉVÉNEMENTS CÔTÉ SERVEUR (ASYNCHRONE)
 
@@ -61,3 +62,9 @@ il utilise un échange précis de messages FIN et FIN-ACK.
 
 Cette façon de faire permet au serveur de gérer facilement les événements réseau
 et d'assurer une connexion stable.
+
+
+
+note:
+
+dansle dernier commit on ajouter un retransmission de pdu_ack comme ca si ack est perdu pour un rate loss >=50 on renvoit pour etablir la connexion
