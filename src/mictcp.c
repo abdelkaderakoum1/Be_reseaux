@@ -24,8 +24,12 @@ bool ack_received = false;
 static int fenetre[taille_fenetre];
 
 // Pour négociation dynamique du seuil
-int seuil = 10;      // valeur par défaut souhaitée côté application
-int seuil_negocie = 20;    // résultat de la négociation, utilisé pour la fiabilité partielle
+int seuil_ = 10;      // valeur par défaut souhaitée côté application
+int seuil_negocie_ = 20;    // résultat de la négociation, utilisé pour la fiabilité partielle
+
+
+#define seuil 0
+#define SEUIL_NEGOCIE 10
 
 // Pour suivre l'état du handshake
 bool waiting_synack = false;
@@ -60,7 +64,7 @@ bool fenetretaux_fautRentre() {
         printf("fenetre[%d]: %d\n", i, fenetre[i]);
     }
     
-    if (taux > seuil) {// s
+    if (taux > seuil_) {// s
         return true; 
     } else {
         return false; 
@@ -80,7 +84,7 @@ int mic_tcp_socket(start_mode sm)
    int result = -1;
    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
    result = initialize_components(sm); /* Appel obligatoire */
-   set_loss_rate(0); /* Pour simuler une perte de 50% des paquets */
+   set_loss_rate(10); /* Pour simuler une perte de 50% des paquets */
    socket1.fd=1;
 
    socket1.local_addr.ip_addr.addr = "localhost";
@@ -176,8 +180,8 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
     syn_pdu.payload.size = sizeof(int);
     syn_pdu.payload.data = malloc(sizeof(int));
 
-    int seuil_souhaite = seuil; // global
-    memcpy(syn_pdu.payload.data, &seuil_souhaite, sizeof(int));
+    int seuil_souhaite_client = seuil; // global
+    memcpy(syn_pdu.payload.data, &seuil_souhaite_client, sizeof(int));
 
     mic_tcp_ip_addr local_addr = {0}, remote_addr = {0};
     local_addr.addr = malloc(10);
@@ -187,7 +191,7 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
 
     // Boucle d'envoi du SYN et attente du SYN_ACK avec limite de retransmissions
     do {
-        printf("[MIC-TCP] Envoi SYN (tentative %d, seuil=%d)\n", retransmissions+1, seuil_souhaite);
+        printf("[MIC-TCP] Envoi SYN (tentative %d, seuil=%d)\n", retransmissions+1, seuil_souhaite_client);
         IP_send(syn_pdu, addr.ip_addr);
 
         status = IP_recv(&synack_pdu, &local_addr, &remote_addr, 1000);
@@ -213,14 +217,11 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
     // Extraction du taux négocié (en binaire)
     int seuil_negocie_tmp = seuil;
     
-    printf("synack_pdu.payload.size: %d\n", synack_pdu.payload.size);
-    printf("sizeof(int): %zu\n", sizeof(int));
-    if (synack_pdu.payload.size == sizeof(int)) {
-        memcpy(&seuil_negocie_tmp, synack_pdu.payload.data, sizeof(int));
-    }
-    seuil_negocie = seuil_negocie_tmp; // global, utilisé pour la suite
+    
+    
+    
 
-    printf("[MIC-TCP] Seuil négocié obtenu: %d\n", seuil_negocie);
+    printf("[MIC-TCP] Seuil négocié obtenu: %d\n", seuil_negocie_tmp);
 
     // Envoi du ACK pour finaliser le handshake
     ack_pdu.header.source_port = socket1.local_addr.port;
@@ -462,19 +463,32 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
     //ack.header.seq_num = 0;
     //ack.header.ack_num = pdu.header.seq_num; 
     //ack.header.ack = 1;
-
+    int seuil_client;
+    int seuil_negocie = 10;
+    int final_rate;
     // SYN reçu (Handshake 1) 
     if (pdu.header.syn == 1 && pdu.header.ack == 0) {
         printf("[MIC-TCP] SYN reçu.\n");
         // Extraction du seuil proposé par le client (binaire)
-        int seuil_client = 20;
-        if (pdu.payload.size == sizeof(int))
-            memcpy(&seuil_client, pdu.payload.data, sizeof(int));
+        
+        
+        memcpy(&seuil_client, pdu.payload.data, sizeof(int));
 
-        // Calcul moyenne entre client et serveur
-        seuil_negocie = (seuil + seuil_client) / 2;
-        printf("[MIC-TCP] Seuil négocié: %d\n", seuil_negocie);
+        // Calcul moyenne entre client et serveur que pour le premier syn
+        if (seuil_client<= seuil_negocie){
+                final_rate = seuil_client;
+            } else {
+                final_rate = seuil_client;
+            }
 
+            seuil_=final_rate;
+
+
+            
+        
+        printf("[MIC-TCP] Seuil négocié: %d\n", final_rate);
+        socket1.state = SYN_RECEIVED;
+        socket1.remote_addr.ip_addr = remote_addr;
 
 
         // Réponse SYN_ACK avec seuil négocié
@@ -482,8 +496,8 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
         ack.header.ack = 1;
         ack.payload.size = sizeof(int);
         ack.payload.data = malloc(sizeof(int));
-        memcpy(ack.payload.data, &seuil_negocie, sizeof(int));
-        socket1.state = SYN_RECEIVED;
+        memcpy(ack.payload.data, &final_rate, sizeof(int));
+        //socket1.state = SYN_RECEIVED;
         // Enregistrer l'adresse distante
         socket1.remote_addr.ip_addr = remote_addr;
         IP_send(ack, remote_addr);
@@ -508,7 +522,8 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
         ack.header.fin = 1;
         ack.header.ack = 1;
         IP_send(ack, remote_addr);
-        socket1.state = CLOSING;
+        if (socket1.state != CLOSING){
+            socket1.state = CLOSING;}
         return;
     }
     //  FIN_ACK reçu (côté client) 
